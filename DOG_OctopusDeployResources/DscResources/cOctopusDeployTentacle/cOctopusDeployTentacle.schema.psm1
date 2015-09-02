@@ -59,9 +59,9 @@ configuration cOctopusDeployTentacle
 
         cOctopusDeployTentacleConfigFile "tentacleConfig_$guid"
         {
-            Path                   = Join-Path $HomeDirectory "Tentacle\$TentacleName.config"
-            Ensure                 = 'Present'
+            TentacleName           = $TentacleName
             HomeDirectory          = $HomeDirectory
+            Ensure                 = 'Present'
             DeploymentDirectory    = $DeploymentDirectory
             Port                   = $Port
             CommunicationMode      = $CommunicationMode
@@ -108,8 +108,16 @@ configuration cOctopusDeployTentacle
     {
         cService "tentacleService_$guid"
         {
-            Ensure         = 'Absent'
-            Name           = "OctopusDeploy Tentacle: $TentacleName"
+            Ensure = 'Absent'
+            Name   = "OctopusDeploy Tentacle: $TentacleName"
+        }
+
+        cOctopusDeployTentacleConfigFile "tentacleConfig_$guid"
+        {
+            TentacleName  = $TentacleName
+            HomeDirectory = $HomeDirectory
+            Ensure        = 'Absent'
+            DependsOn     = "[cService]tentacleService_$guid"
         }
 
         Package "tentacleMsi_$guid"

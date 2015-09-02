@@ -93,7 +93,7 @@ try
                 }
 
                 $splat = @{
-                    Path                   = $stubPath
+                    TentacleName           = 'Stub'
                     Ensure                 = 'Present'
                     ServerName             = 'servername.domain.com'
                     ServerThumbprint       = 'StubServerThumbprint'
@@ -106,24 +106,30 @@ try
                     Environment            = 'SomeEnvironment'
                     ServerPort             = 10943
                 }
+
+                $stubPath = 'TestDrive:\stub.xml'
+
+                if (-not (Test-Path $stubPath))
+                {
+                    New-Item -Path $stubPath -ItemType File
+                }
             }
 
             Mock Import-TentacleConfigFile { return $mockConfigFile }
-
-            $stubPath = 'TestDrive:\stub.xml'
-            New-Item -Path $stubPath -ItemType File
+            Mock Get-TentacleConfigPath { return 'TestDrive:\stub.xml' }
+            Mock Get-TentacleVersion { return [version] '2.0' }
 
             $bogusPassword = 'Whatever' | ConvertTo-SecureString -AsPlainText -Force
             $bogusCredential = New-Object pscredential('BogusUserName', $bogusPassword)
 
             Context 'Get-TargetResource' {
                 It 'Returns the proper data' {
-                    $config = Get-TargetResource -Path $stubPath
+                    $config = Get-TargetResource -HomeDirectory 'StubHomeDirectory' -TentacleName 'Stub'
 
                     $config.GetType()                | Should Be ([hashtable])
                     $config.PSBase.Count             | Should Be 12
 
-                    $config['Path']                  | Should Be $stubPath
+                    $config['TentacleName']          | Should Be Stub
                     $config['Ensure']                | Should Be 'Present'
                     $config['HomeDirectory']         | Should Be StubHomeDirectory
                     $config['DeploymentDirectory']   | Should Be StubDeploymentDirectory
@@ -141,13 +147,13 @@ try
             Context 'Test-TargetResource' {
                 It 'Returns True when Ensure is set to Absent and the file does not exist' {
                     $splat['Ensure'] = 'Absent'
-                    $splat['Path'] = 'TestDrive:\DoesNotExist.xml'
+                    Remove-Item TestDrive:\stub.xml
 
                     Test-TargetResource @splat | Should Be $true
                 }
 
                 It 'Returns False when Ensure is set to Present and the file does not exist' {
-                    $splat['Path'] = 'TestDrive:\DoesNotExist.xml'
+                    Remove-Item TestDrive:\stub.xml
 
                     Test-TargetResource @splat | Should Be $false
                 }
@@ -175,7 +181,7 @@ try
 
                     Test-TargetResource @splat | Should Be $true
                 }
-                
+
                 It 'Ignores the ServerThumbprint when CommunicationMode is set to Poll' {
                     $splat['ServerThumbprint']  = 'Bogus'
 
@@ -253,7 +259,7 @@ try
                 }
 
                 It 'Calls New-TentacleInstance if the file does not exist and Ensure is set to Present' {
-                    $splat['Path'] = 'TestDrive:\DoesNotExist.xml'
+                    Remove-Item TestDrive:\stub.xml
                     Set-TargetResource @splat
 
                     Assert-MockCalled -Scope It -Times 1 New-TentacleInstance
@@ -366,6 +372,28 @@ try
                     Assert-MockCalled -Scope It -Times 0 Set-TentacleListener
                 }
 
+            }
+        }
+
+        Describe 'Octopus v3.x updates' {
+            Mock Get-TentacleExecutablePath { return 'TestDrive:\mocked' }
+
+            Context 'Get-TentacleConfigPath - v2' {
+                Mock Get-TentacleVersion { return [version] '2.0' }
+
+                It 'Returns the proper path for v2' {
+                    $path = Get-TentacleConfigPath -RootPath TestDrive:\ -TentacleName Tentacle
+                    $path | Should Be 'TestDrive:\Tentacle\Tentacle.config'
+                }
+            }
+
+            Context 'Get-TentacleConfigPath - v3' {
+                Mock Get-TentacleVersion { return [version] '3.0' }
+
+                It 'Returns the proper path for v3' {
+                    $path = Get-TentacleConfigPath -RootPath TestDrive:\ -TentacleName Tentacle
+                    $path | Should Be 'TestDrive:\Tentacle.config'
+                }
             }
         }
     }

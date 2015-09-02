@@ -22,13 +22,16 @@ function Get-TargetResource
     [OutputType([hashtable])]
     param (
         [Parameter(Mandatory)]
-        [string] $Path
+        [string] $HomeDirectory,
+
+        [Parameter(Mandatory)]
+        [string] $TentacleName
     )
 
     $configuration = @{
-        Path                  = $Path
+        HomeDirectory         = $HomeDirectory
+        TentacleName          = $TentacleName
         Ensure                = 'Absent'
-        HomeDirectory         = $null
         DeploymentDirectory   = $null
         Port                  = $null
         CommunicationMode     = $null
@@ -40,12 +43,13 @@ function Get-TargetResource
         CertificateThumbprint = $null
     }
 
-    if (Test-Path -LiteralPath $Path -PathType Leaf)
+    $path = Get-TentacleConfigPath -RootPath $HomeDirectory -TentacleName $TentacleName
+
+    if (Test-Path -LiteralPath $path -PathType Leaf)
     {
-        $configFile = Import-TentacleConfigFile -Path $Path
+        $configFile = Import-TentacleConfigFile -Path $path
 
         $configuration['Ensure']                = 'Present'
-        $configuration['HomeDirectory']         = $configFile.HomeDirectory
         $configuration['DeploymentDirectory']   = $configFile.DeploymentDirectory
         $configuration['Port']                  = $configFile.PortNumber
         $configuration['CertificateThumbprint'] = $configFile.CertificateThumbprint
@@ -75,7 +79,10 @@ function Set-TargetResource
 {
     param (
         [Parameter(Mandatory)]
-        [string] $Path,
+        [string] $HomeDirectory,
+
+        [Parameter(Mandatory)]
+        [string] $TentacleName,
 
         [ValidateSet('Present','Absent')]
         [string] $Ensure = 'Present',
@@ -83,9 +90,6 @@ function Set-TargetResource
         [string] $ServerName,
 
         [string] $ServerThumbprint,
-
-        [ValidateNotNullOrEmpty()]
-        [string] $HomeDirectory = 'C:\Octopus',
 
         [ValidateNotNullOrEmpty()]
         [string] $DeploymentDirectory = 'C:\Octopus\Applications',
@@ -107,9 +111,11 @@ function Set-TargetResource
     Assert-ValidParameterCombinations @PSBoundParameters
 
     $tentacleExe = Get-TentacleExecutablePath
-    $fileExists = Test-Path -LiteralPath $Path -PathType Leaf
-    $instance = [System.IO.Path]::GetFileNameWithoutExtension($Path)
-    $serviceName = Get-TentacleServiceName -TentacleName $instance
+    $tentacleVersion = Get-TentacleVersion -TentacleExePath $tentacleExe
+    $path = Get-TentacleConfigPath -RootPath $HomeDirectory -TentacleName $TentacleName -OctopusVersion $tentacleVersion
+
+    $fileExists = Test-Path -LiteralPath $path -PathType Leaf
+    $serviceName = Get-TentacleServiceName -TentacleName $TentacleName
 
     switch ($Ensure)
     {
@@ -136,38 +142,38 @@ function Set-TargetResource
 
             if (-not $fileExists)
             {
-                New-TentacleInstance -TentacleExePath $tentacleExe -InstanceName $instance -Path $Path
+                New-TentacleInstance -TentacleExePath $tentacleExe -InstanceName $TentacleName -Path $path
             }
 
-            $configFile = Import-TentacleConfigFile -Path $Path
+            $configFile = Import-TentacleConfigFile -Path $path
 
             # Should the DSC resource support multiple trusted servers?  For now, we're assuming one, which is a little bit ugly.
             $server = $configFile.TrustedServers | Select-Object -First 1
             $mode = if ($server.CommunicationStyle -eq 'TentaclePassive') { 'Listen' } else { 'Poll' }
 
-            if ([string]::IsNullOrEmpty($configFile.SQUID))
+            if ([string]::IsNullOrEmpty($configFile.SQUID) -and $tentacleVersion.Major -lt 3)
             {
-                New-TentacleSquid -TentacleExePath $tentacleExe -InstanceName $instance
+                New-TentacleSquid -TentacleExePath $tentacleExe -InstanceName $TentacleName
             }
 
             if ([string]::IsNullOrEmpty($configFile.Certificate))
             {
-                New-TentacleCertificate -TentacleExePath $tentacleExe -InstanceName $instance
+                New-TentacleCertificate -TentacleExePath $tentacleExe -InstanceName $TentacleName
             }
 
             if ($configFile.HomeDirectory -ne $HomeDirectory)
             {
-                Set-TentacleHomeDirectory -TentacleExePath $tentacleExe -InstanceName $instance -HomeDirectory $HomeDirectory
+                Set-TentacleHomeDirectory -TentacleExePath $tentacleExe -InstanceName $TentacleName -HomeDirectory $HomeDirectory
             }
 
             if ($configFile.DeploymentDirectory -ne $DeploymentDirectory)
             {
-                Set-TentacleDeploymentDirectory -TentacleExePath $tentacleExe -InstanceName $instance -DeploymentDirectory $DeploymentDirectory
+                Set-TentacleDeploymentDirectory -TentacleExePath $tentacleExe -InstanceName $TentacleName -DeploymentDirectory $DeploymentDirectory
             }
 
             if ($configFile.PortNumber -ne $Port)
             {
-                Set-TentaclePort -TentacleExePath $tentacleExe -InstanceName $instance -Port $Port
+                Set-TentaclePort -TentacleExePath $tentacleExe -InstanceName $TentacleName -Port $Port
             }
 
             switch ($CommunicationMode)
@@ -177,7 +183,7 @@ function Set-TargetResource
                     if ($server.Thumbprint -ne $ServerThumbprint -or
                         $server.CommunicationStyle -ne 'TentaclePassive')
                     {
-                        Set-TentacleListener -TentacleExePath $tentacleExe -InstanceName $instance -ServerThumbprint $ServerThumbprint
+                        Set-TentacleListener -TentacleExePath $tentacleExe -InstanceName $TentacleName -ServerThumbprint $ServerThumbprint
                     }
                 }
 
@@ -190,7 +196,7 @@ function Set-TargetResource
                         $server.CommunicationStyle -ne 'TentacleActive')
                     {
                         Register-PollingTentacle -TentacleExePath $tentacleExe `
-                                                 -InstanceName    $instance `
+                                                 -InstanceName    $TentacleName `
                                                  -ServerName      $ServerName `
                                                  -Environment     $Environment `
                                                  -Credential      $RegistrationCredential `
@@ -211,8 +217,8 @@ function Set-TargetResource
         {
             if ($fileExists)
             {
-                Write-Verbose "Configuration file '$Path' exists and Ensure is set to Absent.  Deleting file."
-                Remove-Item -LiteralPath $Path -Force -ErrorAction Stop
+                Write-Verbose "Configuration file '$path' exists and Ensure is set to Absent.  Deleting file."
+                Remove-Item -LiteralPath $path -Force -ErrorAction Stop
             }
         }
     }
@@ -224,7 +230,10 @@ function Test-TargetResource
     [OutputType([bool])]
     param (
         [Parameter(Mandatory)]
-        [string] $Path,
+        [string] $HomeDirectory,
+
+        [Parameter(Mandatory)]
+        [string] $TentacleName,
 
         [ValidateSet('Present','Absent')]
         [string] $Ensure = 'Present',
@@ -232,9 +241,6 @@ function Test-TargetResource
         [string] $ServerName,
 
         [string] $ServerThumbprint,
-
-        [ValidateNotNullOrEmpty()]
-        [string] $HomeDirectory = 'C:\Octopus',
 
         [ValidateNotNullOrEmpty()]
         [string] $DeploymentDirectory = 'C:\Octopus\Applications',
@@ -255,7 +261,18 @@ function Test-TargetResource
 
     Assert-ValidParameterCombinations @PSBoundParameters
 
-    $fileExists = Test-Path -LiteralPath $Path -PathType Leaf
+    try
+    {
+        $tentacleExe = Get-TentacleExecutablePath
+        $tentacleVersion = Get-TentacleVersion -TentacleExePath $tentacleExe
+    }
+    catch
+    {
+        $tentacleVersion = [version]'0.0'
+    }
+
+    $path = Get-TentacleConfigPath -RootPath $HomeDirectory -TentacleName $TentacleName -OctopusVersion $tentacleVersion
+    $fileExists = Test-Path -LiteralPath $path -PathType Leaf
 
     switch ($Ensure)
     {
@@ -263,7 +280,7 @@ function Test-TargetResource
         {
             if (-not $fileExists) { return $false }
 
-            $configFile = Import-TentacleConfigFile -Path $Path
+            $configFile = Import-TentacleConfigFile -Path $path
 
             # Should the DSC resource support multiple trusted servers?  For now, we're assuming one, which is a little bit ugly.
             $server = $configFile.TrustedServers | Select-Object -First 1
@@ -273,8 +290,12 @@ function Test-TargetResource
                 $configFile.DeploymentDirectory -ne $DeploymentDirectory -or
                 $configFile.PortNumber          -ne $Port -or
                 $mode                           -ne $CommunicationMode -or
-                [string]::IsNullOrEmpty($configFile.CertificateThumbprint) -or
-                [string]::IsNullOrEmpty($configFile.SQUID))
+                [string]::IsNullOrEmpty($configFile.CertificateThumbprint))
+            {
+                return $false
+            }
+
+            if ($tentacleVersion.Major -lt 3 -and [string]::IsNullOrEmpty($configFile.SQUID))
             {
                 return $false
             }
@@ -309,7 +330,10 @@ function Assert-ValidParameterCombinations
 {
     param (
         [Parameter(Mandatory)]
-        [string] $Path,
+        [string] $HomeDirectory,
+
+        [Parameter(Mandatory)]
+        [string] $TentacleName,
 
         [ValidateSet('Present','Absent')]
         [string] $Ensure = 'Present',
@@ -317,9 +341,6 @@ function Assert-ValidParameterCombinations
         [string] $ServerName,
 
         [string] $ServerThumbprint,
-
-        [ValidateNotNullOrEmpty()]
-        [string] $HomeDirectory = 'C:\Octopus',
 
         [ValidateNotNullOrEmpty()]
         [string] $DeploymentDirectory = 'C:\Octopus\Applications',
@@ -395,6 +416,18 @@ function Import-TentacleConfigFile
         # is not already an array.
 
         $trustedServers = @((ConvertFrom-Json $xml.SelectSingleNode('/octopus-settings/set[@key="Tentacle.Communication.TrustedOctopusServers"]/text()').Value))
+
+        foreach ($server in $trustedServers)
+        {
+            if ($server.CommunicationStyle -eq '0')
+            {
+                $server.CommunicationStyle = 'TentaclePassive'
+            }
+            elseif ($server.CommunicationStyle -eq '2')
+            {
+                $server.CommunicationStyle = 'TentacleActive'
+            }
+        }
     } catch {
         $trustedServers = @()
     }
@@ -409,25 +442,6 @@ function Import-TentacleConfigFile
         PortNumber            = $xml.SelectSingleNode('/octopus-settings/set[@key="Tentacle.Services.PortNumber"]/text()').Value -as [int]
         TrustedServers        = $trustedServers
     }
-}
-
-function Get-TentacleExecutablePath
-{
-    if (Test-Path -LiteralPath HKLM:\Software\Octopus\Tentacle)
-    {
-        $installLocation = (Get-ItemProperty -Path HKLM:\Software\Octopus\Tentacle).InstallLocation
-        if ($installLocation -and (Test-Path -LiteralPath $installLocation -PathType Container))
-        {
-            $exePath = Join-Path $installLocation Tentacle.exe
-            if (Test-Path -LiteralPath $exePath -PathType Leaf)
-            {
-                Write-Verbose "Identified path to Tentacle.exe: '$exePath'"
-                return $exePath
-            }
-        }
-    }
-
-    throw 'Could not determine path to Tentacle.exe based on contents of registry key HKLM:\Software\Octopus\Tentacle'
 }
 
 function New-TentacleInstance
@@ -448,7 +462,7 @@ function New-TentacleSquid
 {
     param ($TentacleExePath, $InstanceName)
 
-    Write-Verbose "Generating new SQUID for tentacle instalce '$InstanceName'"
+    Write-Verbose "Generating new SQUID for tentacle instance '$InstanceName'"
 
     & $TentacleExePath --console new-squid --instance $InstanceName
 
@@ -462,7 +476,7 @@ function New-TentacleCertificate
 {
     param ($TentacleExePath, $InstanceName)
 
-    Write-Verbose "Generating new client certificate for tentacle instalce '$InstanceName'"
+    Write-Verbose "Generating new client certificate for tentacle instance '$InstanceName'"
 
     & $TentacleExePath --console new-certificate --instance $InstanceName
 
