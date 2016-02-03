@@ -51,7 +51,7 @@ function Install-TeamCity
   Write-Log "======================================"
   Write-Log " Install Team City"
   Write-Log ""
-  choco install teamcity -force
+  choco install -y teamcity -force
   Write-Log "done."
     
 }
