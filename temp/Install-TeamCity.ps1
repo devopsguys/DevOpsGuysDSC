@@ -41,7 +41,7 @@ function Install-JavaRunTime
   Write-Log "======================================"
   Write-Log " Install Java Runtime"
   Write-Log ""  
-  choco install -y -force javaruntime
+  choco install -y -force jre8
   Write-Log "done."
     
 }
