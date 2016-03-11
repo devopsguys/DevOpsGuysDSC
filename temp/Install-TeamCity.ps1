@@ -1,7 +1,5 @@
 Param ( )
-
-Import-DscResource -ModuleName PSDesiredStateConfiguration
-
+ 
 function Write-Log
 {
   param (
@@ -41,7 +39,7 @@ function Install-JavaRunTime
   Write-Log "======================================"
   Write-Log " Install Java Runtime"
   Write-Log ""  
-  choco install -y -force jre8
+  choco install jre8 -y -force 
   Write-Log "done."
     
 }
@@ -51,24 +49,56 @@ function Install-TeamCity
   Write-Log "======================================"
   Write-Log " Install Team City"
   Write-Log ""
-  choco install -y teamcity -force
+  choco install teamcity -force -y
   Write-Log "done."
     
+}
+
+function Install-7zip
+{
+  Write-Log "======================================"
+  Write-Log " Install 7zip"
+  Write-Log ""
+  choco install 7zip -force -y
+  Write-Log "done."
+    
+}
+
+function Install-NotepadPlusPlus
+{
+  Write-Log "======================================"
+  Write-Log " Install Notepad++"
+  Write-Log ""
+  choco install notepadplusplus.install -force -y
+  Write-Log "done."
+    
+}
+
+function Install-Chrome
+{
+  Write-Log "======================================"
+  Write-Log "Install Chrome"
+  Write-Log ""
+  choco install googlechrome -force -y
+  Write-Log "done."
 }
 
 
 try
 {
   Write-Log "======================================"
-  Write-Log " Installing 'Team City'"
+  Write-Log " Setting up server"
   Write-Log "======================================"
   Write-Log ""
   
   Install-Chocolatey
   Install-JavaRunTime
   Install-TeamCity
+  Install-7zip
+  Install-NotepadPlusPlus
+  Install-Chrome
   
-  Write-Log "Installation successful."
+  Write-Log "Server setup complete."
   Write-Log ""
 }
 catch
