@@ -178,7 +178,7 @@ function VisitCacheFiles
         }
     )
 
-    $sourceFiles = Get-ChildItem -LiteralPath (Join-Path $Source *) -File -Recurse -Force -Exclude $exclude
+    $sourceFiles = Get-ChildItem -Path (Join-Path $Source *) -File -Recurse -Force -Exclude $exclude
 
     foreach ($file in $sourceFiles)
     {
